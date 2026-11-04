@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1120" />
+  <title>Admin · Guard House</title>
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <strong id="brandSite">Guard House</strong>
+        <small>Administration</small>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs"></nav>
+    <div class="userbox">
+      <span id="userLabel"></span>
+      <button class="btn btn-ghost btn-sm" id="changePasswordBtn" type="button">Change password</button>
+      <button class="btn btn-ghost btn-sm" id="logoutBtn" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="banner"></section>
+    <section id="view" class="tabview"></section>
+  </main>
+
+  <div class="toasts"></div>
+  <script type="module" src="/js/admin.js"></script>
+</body>
+</html>

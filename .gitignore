@@ -25,6 +25,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Local data (SQLite database, WAL files)
+data/
+
 # Python
 __pycache__/
 *.py[cod]

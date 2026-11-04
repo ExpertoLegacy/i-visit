@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1120" />
+  <title>Sign in · Guard House</title>
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <main class="auth-wrap">
+    <section class="auth-card">
+      <div class="auth-head">
+        <div class="dot"></div>
+        <div>
+          <h1>Guard House</h1>
+          <p>Visitor QR monitoring</p>
+        </div>
+      </div>
+      <form class="auth-form" id="loginForm" autocomplete="on">
+        <label class="field">
+          <span>Username</span>
+          <input class="input" id="username" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input class="input" id="password" name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <p class="form-error" id="formError"></p>
+        <button class="btn btn-primary btn-block" type="submit" id="submitBtn">Sign in</button>
+      </form>
+      <p class="auth-foot">Guards · Office staff · Administrators</p>
+    </section>
+  </main>
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#070d18" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Guard House" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <title>Scan pass · Guard House</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body class="scan-app">
+  <header class="scan-head">
+    <div>
+      <strong id="officeName">Office</strong>
+      <small id="staffName">Signed in</small>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="logoutBtn" type="button">Sign out</button>
+  </header>
+
+  <main class="scan-main">
+    <section class="panel camera-card">
+      <div id="reader" class="reader"></div>
+      <p class="hint" id="cameraHint">Point the camera at the visitor’s pass QR.</p>
+      <div class="row">
+        <button class="btn btn-primary btn-block" id="startBtn" type="button">Start camera</button>
+        <button class="btn btn-block" id="stopBtn" type="button" hidden>Stop camera</button>
+      </div>
+    </section>
+
+    <form class="panel form-grid" id="manualForm" autocomplete="off">
+      <label class="field">
+        <span>Or type the pass code</span>
+        <input class="input code" id="manualCode" placeholder="GH-XXXX-XXXX" maxlength="20" enterkeyhint="go" />
+      </label>
+      <button class="btn btn-block" type="submit">Check this pass</button>
+    </form>
+
+    <section id="result"></section>
+
+    <section class="panel" id="recentCard" hidden>
+      <h3 style="margin-bottom: 10px">Confirmed this session</h3>
+      <ul class="recent-list" id="recentList"></ul>
+    </section>
+  </main>
+
+  <div class="toasts"></div>
+  <script src="/vendor/html5-qrcode.min.js"></script>
+  <script type="module" src="/js/scan.js"></script>
+</body>
+</html>

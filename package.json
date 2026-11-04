@@ -1,0 +1,19 @@
+{
+  "name": "guard-house-qr-monitoring",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Guard house visitor QR monitoring system",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "qrcode": "^1.5.4"
+  }
+}

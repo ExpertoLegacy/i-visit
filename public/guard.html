@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1120" />
+  <title>Live board · Guard House</title>
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <strong id="brandSite">Guard House</strong>
+        <small>Visitor QR monitoring</small>
+      </div>
+    </div>
+    <nav class="tabs" id="viewTabs">
+      <button class="tab active" data-view="live" type="button">Live board</button>
+      <button class="tab" data-view="completed" type="button">Completed today</button>
+      <button class="tab" data-view="offices" type="button">By office</button>
+    </nav>
+    <div class="userbox">
+      <span class="live-dot" id="liveDot" title="Live updates"></span>
+      <span id="userLabel"></span>
+      <button class="btn btn-ghost btn-sm" id="logoutBtn" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="stats" id="stats"></section>
+
+    <div class="cols">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Issue a pass</h2>
+          <span class="sub">Scan or type the printed code</span>
+        </div>
+        <form class="form-grid" id="issueForm" autocomplete="off">
+          <label class="field">
+            <span>Pass code</span>
+            <input class="input code" id="code" name="code" placeholder="GH-XXXX-XXXX" maxlength="20" required />
+          </label>
+          <p class="hint" id="codeHint">Codes look like GH-7K2M-9QX4.</p>
+          <label class="field">
+            <span>Visitor name</span>
+            <input class="input" id="visitor" name="visitor_name" maxlength="80" placeholder="Full name" required />
+          </label>
+          <div class="row2">
+            <label class="field">
+              <span>Office to visit</span>
+              <select class="select" id="office" name="office_id" required></select>
+            </label>
+            <label class="field">
+              <span>Contact person</span>
+              <select class="select" id="contact" name="contact_id"></select>
+            </label>
+          </div>
+          <label class="field">
+            <span>Purpose <span class="muted small">(optional)</span></span>
+            <input class="input" id="purpose" name="purpose" maxlength="120" placeholder="e.g. Submit documents" />
+          </label>
+          <button class="btn btn-primary btn-block btn-lg" type="submit" id="issueBtn">Issue pass</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 id="boardTitle">Visitors in the building</h2>
+            <span class="sub" id="boardSub"></span>
+          </div>
+          <input class="input" id="filter" placeholder="Filter visitor, office or code" style="width: 240px" />
+        </div>
+        <div id="board"></div>
+      </section>
+    </div>
+  </main>
+
+  <div class="toasts"></div>
+  <script type="module" src="/js/guard.js"></script>
+</body>
+</html>
