@@ -1,4 +1,4 @@
-const CACHE = 'guard-house-v1';
+const CACHE = 'guard-house-v2';
 const SHELL = [
   '/app.css',
   '/js/common.js',
@@ -6,6 +6,10 @@ const SHELL = [
   '/js/guard.js',
   '/js/scan.js',
   '/js/admin.js',
+  '/js/history.js',
+  '/js/reports.js',
+  '/js/system.js',
+  '/js/change-password.js',
   '/vendor/html5-qrcode.min.js',
   '/manifest.webmanifest',
   '/icons/icon-192.png',

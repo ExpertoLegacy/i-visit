@@ -110,12 +110,35 @@ db.exec(`
     at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    visit_id INTEGER REFERENCES visits(id),
+    recipient TEXT,
+    phone TEXT NOT NULL,
+    message TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending','sent','failed')),
+    error TEXT,
+    created_at TEXT NOT NULL,
+    sent_at TEXT
+  );
+
   CREATE INDEX IF NOT EXISTS idx_visits_status ON visits(status);
   CREATE INDEX IF NOT EXISTS idx_visits_gate_in ON visits(gate_in_at);
   CREATE INDEX IF NOT EXISTS idx_events_visit ON events(visit_id);
   CREATE INDEX IF NOT EXISTS idx_passes_batch ON passes(batch_id);
   CREATE INDEX IF NOT EXISTS idx_passes_status ON passes(status);
 `);
+
+export function addEvent({ passId, visitId, type, note, userId }) {
+  db.prepare('INSERT INTO events (pass_id, visit_id, type, note, user_id, at) VALUES (?, ?, ?, ?, ?, ?)').run(
+    passId ?? null,
+    visitId ?? null,
+    type,
+    note ?? null,
+    userId ?? null,
+    now(),
+  );
+}
 
 const DEFAULT_OFFICES = ['Registrar', "Principal's Office", 'Cashier', 'Guidance Office', 'Supply Office'];
 

@@ -1,18 +1,10 @@
-import { api, registerServiceWorker } from './common.js';
+import { api, registerServiceWorker, returnPath } from './common.js';
 
 registerServiceWorker();
 
 const form = document.getElementById('loginForm');
 const errorNode = document.getElementById('formError');
 const submit = document.getElementById('submitBtn');
-
-/** The same-site page that sent the user here, so a scanned pass link survives signing in. */
-function returnPath() {
-  const next = new URLSearchParams(window.location.search).get('next');
-  if (!next) return null;
-  const url = new URL(next, window.location.origin);
-  return url.origin === window.location.origin ? url.pathname + url.search + url.hash : null;
-}
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();

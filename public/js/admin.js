@@ -8,6 +8,9 @@ import {
   registerServiceWorker,
   openModal,
 } from './common.js';
+import { mountHistory } from './history.js';
+import { mountReports } from './reports.js';
+import { mountSystem } from './system.js';
 
 const $ = (selector) => document.querySelector(selector);
 const state = {
@@ -24,9 +27,12 @@ const state = {
 const TABS = [
   ['supply', 'Pass supply'],
   ['passes', 'Pass log'],
+  ['history', 'Visit history'],
+  ['reports', 'Reports'],
   ['offices', 'Offices'],
   ['contacts', 'Contacts'],
   ['accounts', 'Accounts'],
+  ['system', 'System'],
 ];
 
 const PASS_CHIP = { unused: 'gray', issued: 'amber', arrived: 'blue', done: 'green', void: 'red' };
@@ -55,16 +61,6 @@ async function boot() {
   await reloadAll();
   renderTabs();
   render();
-
-  if (state.me.must_change_password) {
-    showBanner('This account still uses the seeded admin password. Change it before real use.', openPasswordModal);
-  }
-}
-
-function showBanner(message, action) {
-  const banner = $('#banner');
-  banner.innerHTML = `<div class="banner warn"><span>${esc(message)}</span><button class="btn btn-sm" id="bannerAction" type="button">Change password</button></div>`;
-  $('#bannerAction')?.addEventListener('click', action);
 }
 
 function renderTabs() {
@@ -101,8 +97,11 @@ async function loadPasses() {
 function render() {
   if (state.tab === 'supply') renderSupply();
   else if (state.tab === 'passes') renderPasses();
+  else if (state.tab === 'history') mountHistory($('#view'), { offices: state.offices, canExport: true });
+  else if (state.tab === 'reports') mountReports($('#view'), { offices: state.offices }).catch((err) => toast(err.message, 'error'));
   else if (state.tab === 'offices') renderOffices();
   else if (state.tab === 'contacts') renderContacts();
+  else if (state.tab === 'system') mountSystem($('#view'));
   else renderAccounts();
 }
 
@@ -541,8 +540,6 @@ function openPasswordModal() {
         body: { current_password: form.current_password.value, new_password: form.new_password.value },
       });
       toast('Password updated', 'success');
-      $('#banner').innerHTML = '';
-      state.me.must_change_password = false;
       modal.remove();
     } catch (err) {
       errorNode.textContent = err.message;

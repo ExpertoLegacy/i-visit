@@ -10,7 +10,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "test": "node --no-warnings --test \"test/*.test.js\"",
+    "backup": "node --no-warnings scripts/backup.mjs",
+    "reset-password": "node --no-warnings scripts/reset-password.mjs"
   },
   "dependencies": {
     "express": "^5.1.0",

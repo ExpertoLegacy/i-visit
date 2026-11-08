@@ -8,11 +8,11 @@ import {
   logout,
   registerServiceWorker,
   normalizeCode,
-  openModal,
 } from './common.js';
+import { mountHistory, showVisitActivity } from './history.js';
 
 const $ = (selector) => document.querySelector(selector);
-const state = { me: null, offices: [], monitor: null, view: 'live', filter: '', refreshTimer: null };
+const state = { me: null, offices: [], monitor: null, view: 'live', filter: '', refreshTimer: null, historyMounted: false };
 
 boot();
 
@@ -68,6 +68,8 @@ function bindEvents() {
     const button = event.target.closest('[data-view]');
     if (!button) return;
     state.view = button.dataset.view;
+    state.historyMounted = false;
+    $('#filter').hidden = state.view === 'history';
     document.querySelectorAll('#viewTabs .tab').forEach((tab) => tab.classList.toggle('active', tab === button));
     renderBoard();
   });
@@ -246,6 +248,16 @@ function renderBoard() {
     return;
   }
 
+  if (state.view === 'history') {
+    // Live updates re-render the board, so the search form is only built once per visit to this view.
+    if (state.historyMounted) return;
+    state.historyMounted = true;
+    $('#boardTitle').textContent = 'Visit history';
+    $('#boardSub').textContent = 'Search every recorded visit';
+    mountHistory(board, { offices: state.offices });
+    return;
+  }
+
   if (state.view === 'offices') {
     $('#boardTitle').textContent = 'Visits by office';
     $('#boardSub').textContent = 'Today, including average time to reach the office';
@@ -300,7 +312,7 @@ function liveRow(visit) {
       </td>
       <td>
         <div class="cell-strong">${esc(visit.office_name)}</div>
-        <div class="cell-sub">${esc(visit.contact_name || 'No contact set')}</div>
+        <div class="cell-sub">${esc(visit.contact_name || 'No contact set')}${visit.contact_phone ? ` · <a href="tel:${esc(visit.contact_phone)}">${esc(visit.contact_phone)}</a>` : ''}</div>
       </td>
       <td>
         <div>${fmtTime(visit.gate_in_at)}</div>
@@ -371,7 +383,7 @@ async function onBoardClick(event) {
   const visit = [...(state.monitor?.active ?? []), ...(state.monitor?.completed ?? [])].find((item) => item.id === visitId);
 
   if (button.dataset.action === 'activity') {
-    openActivity(visitId, visit);
+    showVisitActivity(visitId, visit ? `${visit.visitor_name} · ${visit.pass_code}` : `Visit #${visitId}`);
     return;
   }
 
@@ -391,31 +403,6 @@ async function onBoardClick(event) {
       toast(err.message, 'error');
       button.disabled = false;
     }
-  }
-}
-
-async function openActivity(visitId, visit) {
-  try {
-    const { events } = await api(`/api/visit/${visitId}/events`);
-    const items = events.length
-      ? events
-          .map(
-            (event) => `
-        <li>
-          <time>${fmtTime(event.at)}</time>
-          <div>
-            <div>${esc(event.note || event.type)}</div>
-            ${event.actor ? `<div class="who">by ${esc(event.actor)}</div>` : ''}
-          </div>
-        </li>`,
-          )
-          .join('')
-      : '<li><time></time><div>No activity recorded.</div></li>';
-
-    const heading = visit ? `${visit.visitor_name} · ${visit.pass_code}` : `Visit #${visitId}`;
-    openModal(heading, `<ul class="timeline">${items}</ul>`);
-  } catch (err) {
-    toast(err.message, 'error');
   }
 }
 

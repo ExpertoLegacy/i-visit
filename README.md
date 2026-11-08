@@ -30,8 +30,9 @@ Open <http://localhost:3000> and sign in with the seeded account:
 | -------- | ---------- | ----- |
 | `admin`  | `admin123` | Admin |
 
-The password is printed in the terminal the first time the database is created. **Change it
-immediately** (Admin → Change password); a warning banner stays until you do.
+The password is printed in the terminal the first time the database is created. You must
+choose a new one at first sign-in before the app will do anything else. The same applies to
+every account created or reset by an admin.
 
 To try the whole flow without creating accounts first:
 
@@ -49,10 +50,12 @@ That adds sample offices, a demo print batch, and these accounts:
 
 ## Roles
 
-- **Guard** (`/guard`) — issues passes, watches the live board, checks visitors out.
+- **Guard** (`/guard`) — issues passes, watches the live board, checks visitors out,
+  searches visit history.
 - **Office staff** (`/scan`) — camera scanner or manual code entry; confirms that the
   visitor reached their office.
-- **Admin** (`/admin`) — offices, contact persons, staff accounts, QR print batches, pass log.
+- **Admin** (`/admin`) — offices, contact persons, staff accounts, QR print batches, pass log,
+  visit history, reports and exports, backups, SMS status.
 
 ## Daily procedure
 
@@ -78,6 +81,36 @@ marked *departed without confirmation*.
   ticket with the phone's own camera app would open the wrong address.
 - Cancelled or lost passes can be voided in *Admin → Pass log*; scanning a voided pass is
   refused with a clear message.
+
+## Visit history and reports
+
+- **History** (guard board and Admin → *Visit history*) searches every recorded visit by
+  date range, visitor, pass code, purpose, contact person, office and status.
+- **Reports** (Admin → *Reports*) totals visits for a period and office, with a breakdown by
+  office and by day, including how long visitors take to reach the office and how long they
+  stay. **Print / PDF** uses the browser's print dialog.
+- **Export CSV** (admins only) downloads the matching visits in a file Excel opens directly,
+  with times in `APP_TZ`.
+
+## SMS notifications
+
+When a guard issues a pass with a contact person who has a phone number, the app can text
+that person. It is off until you connect an SMS provider, and it works with any provider
+that accepts an HTTP POST. Without one, guards can call the number shown on the live board.
+
+| Variable            | Default   | Purpose |
+| ------------------- | --------- | ------- |
+| `SMS_URL`           | off       | The provider's send address. Setting it turns SMS on |
+| `SMS_FORMAT`        | `json`    | `json` or `form` (URL-encoded body) |
+| `SMS_TO_FIELD`      | `to`      | Name of the phone number field |
+| `SMS_MESSAGE_FIELD` | `message` | Name of the text field |
+| `SMS_EXTRA`         | none      | Other fields, written as `apikey=abc&sendername=GUARD` |
+| `SMS_AUTH_HEADER`   | none      | Value for the `Authorization` header, e.g. `Bearer abc` |
+
+Check your provider's documentation for its field names, then use Admin → *System* →
+**Send test**. Each attempt is listed there and recorded in the visit's log. A provider
+that is slow or down never delays issuing a pass. Success means the provider accepted the
+message (an HTTP 2xx answer), which is not proof of delivery to the phone.
 
 ## Install on a phone (office staff)
 
@@ -118,11 +151,26 @@ Copy `.env.example` to `.env` and edit as needed (the file is git-ignored).
 | `DB_PATH`         | `data/app.db`        | SQLite database location |
 | `ADMIN_PASSWORD`  | `admin123`           | Password used when the admin account is first created |
 | `SEED_DEMO`       | off                  | `1` loads sample offices, passes and demo accounts |
+| `BACKUP_DIR`      | `data/backups`       | Where backups are saved. Point it at another drive if you can |
+| `BACKUP_KEEP`     | `14`                 | Daily and manual copies to keep. `0` turns off daily backups |
 
 ## Data and backup
 
 Everything lives in one SQLite file: `data/app.db` (plus `-wal`/`-shm` while running).
-Stop the server, copy that file somewhere safe, and you have a full backup.
+
+The server saves one copy a day to `data/backups` while it is running, the first time it
+is up on each date, so a PC that is switched off at night is still covered. Take an extra
+copy any time with Admin → *System* → **Back up now**, or:
+
+```bash
+npm run backup
+```
+
+Backups hold visitor records and password hashes, so keep them private. Copy them to another
+drive regularly, because a copy on the same disk does not survive that disk failing.
+
+To restore, stop the server, delete `data/app.db`, `data/app.db-wal` and `data/app.db-shm`,
+copy the backup in as `data/app.db`, and start the server. Everyone will need to sign in again.
 
 ```bash
 # reset everything (destroys all visits, passes and accounts)
@@ -148,16 +196,28 @@ rm -rf data/
 | Camera button greyed out | Not HTTPS (see above); type the code instead |
 | "Unknown pass" when scanning | The pass belongs to a different database/site — check the batch was printed from this install |
 | Scanner library missing | `public/vendor/html5-qrcode.min.js` is vendored in the repo; restore it if deleted |
-| Forgot admin password | With the server stopped, delete `data/app.db` (loses data) or insert a new admin hash manually |
+| Forgot a password | On the server, run `npm run reset-password` (for `admin`) or `npm run reset-password -- username`. It prints a temporary password |
+
+## Tests
+
+```bash
+npm test
+```
+
+This starts the real server on a free port with a throwaway database. Your `data/` folder
+is not touched.
 
 ## Project layout
 
 ```
-src/server.js     Express routes, pass state machine, live SSE stream, print sheet
+src/server.js     Express routes, pass state machine, live SSE stream, reports, print sheet
 src/db.js         SQLite schema, seeding, pass-code helpers
 src/session.js    Cookie sessions and role guards
 src/passwords.js  scrypt hashing
+src/notify.js     SMS gateway client
+src/backup.js     Daily and on-demand database backups
 public/           Guard board, scan app, admin console, styles, PWA shell
-scripts/          PWA icon generator (npm run icons)
-data/             SQLite database (git-ignored)
+scripts/          Icons, backup and password recovery commands
+test/             End-to-end tests (npm test)
+data/             SQLite database and backups (git-ignored)
 ```

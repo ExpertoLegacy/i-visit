@@ -23,6 +23,11 @@ export async function api(path, options = {}) {
     throw new Error('Session expired');
   }
 
+  if (response.status === 403 && data?.error === 'password_change_required') {
+    window.location.href = `/change-password?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    throw new Error(data.message);
+  }
+
   if (!response.ok) {
     const error = new Error(data?.message || data?.error || `Request failed (${response.status})`);
     error.status = response.status;
@@ -123,6 +128,14 @@ export async function logout() {
     /* ignore */
   }
   window.location.href = '/login';
+}
+
+/** The same-site page named by ?next=, so people return to where they were headed. */
+export function returnPath() {
+  const next = new URLSearchParams(window.location.search).get('next');
+  if (!next) return null;
+  const url = new URL(next, window.location.origin);
+  return url.origin === window.location.origin ? url.pathname + url.search + url.hash : null;
 }
 
 export function registerServiceWorker() {

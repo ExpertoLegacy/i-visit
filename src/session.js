@@ -89,9 +89,12 @@ export function attachUser(req, res, next) {
   return next();
 }
 
-export function requireAuth(roles) {
+export function requireAuth(roles, { allowPasswordChange = false } = {}) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'auth_required', message: 'Please sign in again.' });
+    if (req.user.must_change_password && !allowPasswordChange) {
+      return res.status(403).json({ error: 'password_change_required', message: 'Change your password to continue.' });
+    }
     if (roles && !roles.includes(req.user.role)) {
       return res.status(403).json({ error: 'forbidden', message: 'Your account cannot do that.' });
     }

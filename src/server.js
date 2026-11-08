@@ -2,8 +2,10 @@ import './env.js';
 import path from 'node:path';
 import express from 'express';
 import QRCode from 'qrcode';
-import { db, normalizeCode, newPassCode, now, DB_PATH } from './db.js';
+import { db, normalizeCode, newPassCode, now, addEvent, DB_PATH } from './db.js';
 import { hashPassword, verifyPassword } from './passwords.js';
+import { notifyContact, sendSms, smsConfigured, recentNotifications } from './notify.js';
+import { createBackup, backupStatus, backupPath, startBackupSchedule } from './backup.js';
 import {
   attachUser,
   requireAuth,
@@ -130,17 +132,6 @@ const BATCH_SELECT = `
 const getVisit = (id) => db.prepare(`${VISIT_SELECT} WHERE v.id = ?`).get(Number(id)) ?? null;
 const getBatch = (id) => db.prepare(`${BATCH_SELECT} WHERE b.id = ?`).get(Number(id)) ?? null;
 
-function addEvent({ passId, visitId, type, note, userId }) {
-  db.prepare('INSERT INTO events (pass_id, visit_id, type, note, user_id, at) VALUES (?, ?, ?, ?, ?, ?)').run(
-    passId ?? null,
-    visitId ?? null,
-    type,
-    note ?? null,
-    userId ?? null,
-    now(),
-  );
-}
-
 /* --------------------------------------------------------------- live stream */
 
 const streamClients = new Set();
@@ -184,6 +175,7 @@ app.get('/api/stream', requireAuth(['guard', 'admin']), (req, res) => {
 function page(roles) {
   return (req, res, next) => {
     if (!req.user) return res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
+    if (req.user.must_change_password) return res.redirect(`/change-password?next=${encodeURIComponent(req.originalUrl)}`);
     if (roles && !roles.includes(req.user.role)) return res.redirect(homeFor(req.user.role));
     return next();
   };
@@ -199,6 +191,11 @@ app.get('/', (req, res) => {
 app.get('/login', (req, res) => {
   if (req.user) return res.redirect(homeFor(req.user.role));
   return res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
+});
+
+app.get('/change-password', (req, res) => {
+  if (!req.user) return res.redirect('/login?next=%2Fchange-password');
+  return res.sendFile(path.join(PUBLIC_DIR, 'change-password.html'));
 });
 
 app.get('/guard', page(['guard', 'admin']), sendPage('guard.html'));
@@ -280,11 +277,12 @@ app.get('/api/me', (req, res) => {
   res.json({ user: req.user, site: SITE_NAME, tz: TZ, today: localDateLabel() });
 });
 
-app.post('/api/me/password', requireAuth(), (req, res) => {
+app.post('/api/me/password', requireAuth(undefined, { allowPasswordChange: true }), (req, res) => {
   const body = req.body ?? {};
   const current = String(body.current_password ?? '');
   const next = String(body.new_password ?? '');
   if (next.length < 8) return sendError(res, 400, 'weak_password', 'New password must be at least 8 characters.');
+  if (next === current) return sendError(res, 400, 'same_password', 'Choose a password different from the current one.');
   const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
   if (!verifyPassword(current, row.password_hash)) return sendError(res, 400, 'wrong_password', 'Current password is incorrect.');
   db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashPassword(next), req.user.id);
@@ -360,7 +358,10 @@ app.post('/api/issue', requireAuth(['guard', 'admin']), (req, res) => {
     addEvent({ passId: pass.id, visitId, type: 'issued', note: `Pass issued for ${office.name}`, userId: req.user.id });
     db.exec('COMMIT');
     broadcast('visit.updated', { kind: 'issue', visit_id: visitId, visitor_name: visitorName, code, office_name: office.name, at });
-    return res.status(201).json({ visit: getVisit(visitId) });
+    const visit = getVisit(visitId);
+    // Runs in the background so a slow gateway never delays the gate.
+    notifyContact(visit, SITE_NAME).catch((err) => console.error('[sms] notification failed:', err.message));
+    return res.status(201).json({ visit });
   } catch (err) {
     try {
       db.exec('ROLLBACK');
@@ -831,6 +832,210 @@ app.get('/api/qr/:code', requireAuth(ROLES), async (req, res) => {
   return res.end(png);
 });
 
+/* ---------------------------------------------------- visit history, reports */
+
+const VISIT_STATUSES = ['at_gate', 'at_office', 'done', 'void'];
+const VISIT_STATUS_LABEL = { at_gate: 'Awaiting arrival', at_office: 'At office', done: 'Completed', void: 'Cancelled' };
+
+/** Returns "YYYY-MM-DD", "" when blank, or null when it is not a real calendar day. */
+function parseDay(value) {
+  const day = String(value ?? '').trim();
+  if (!day) return '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const [year, month, date] = day.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, date));
+  return parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === date ? day : null;
+}
+
+/** ISO timestamp of local midnight on a day, optionally a number of days later. */
+function localDayStartISO(day, addDays = 0) {
+  const [year, month, date] = day.split('-').map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, date + addDays));
+  return new Date(utc.getTime() - tzOffsetMinutes(utc, TZ) * 60000).toISOString();
+}
+
+function visitFilters(query) {
+  const from = parseDay(query.from);
+  const to = parseDay(query.to);
+  if (from === null || to === null) return { error: 'Dates must be real calendar days.' };
+  if (from && to && from > to) return { error: 'The start date is after the end date.' };
+
+  const where = [];
+  const params = [];
+  if (from) {
+    where.push('v.gate_in_at >= ?');
+    params.push(localDayStartISO(from));
+  }
+  if (to) {
+    where.push('v.gate_in_at < ?');
+    params.push(localDayStartISO(to, 1));
+  }
+  const officeId = Number(query.office_id);
+  if (officeId) {
+    where.push('v.office_id = ?');
+    params.push(officeId);
+  }
+  const status = String(query.status || '');
+  if (VISIT_STATUSES.includes(status)) {
+    where.push('v.status = ?');
+    params.push(status);
+  }
+  const search = text(query.q, 80);
+  if (search) {
+    const like = `%${search.replace(/[\\%_]/g, '\\$&')}%`;
+    where.push(`(v.visitor_name LIKE ? ESCAPE '\\' OR p.code LIKE ? ESCAPE '\\' OR v.purpose LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\')`);
+    params.push(like, like, like, like);
+  }
+  return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
+}
+
+app.get('/api/visits', requireAuth(['guard', 'admin']), (req, res) => {
+  const filters = visitFilters(req.query);
+  if (filters.error) return sendError(res, 400, 'invalid_filter', filters.error);
+  const pageSize = Math.min(Math.max(Number(req.query.page_size) || 25, 1), 100);
+  const { total } = db
+    .prepare(
+      `SELECT COUNT(*) AS total FROM visits v
+       JOIN passes p ON p.id = v.pass_id
+       LEFT JOIN contacts c ON c.id = v.contact_id
+       ${filters.clause}`,
+    )
+    .get(...filters.params);
+  const pages = Math.max(Math.ceil(total / pageSize), 1);
+  const currentPage = Math.min(Math.max(Math.floor(Number(req.query.page)) || 1, 1), pages);
+  const visits = db
+    .prepare(`${VISIT_SELECT} ${filters.clause} ORDER BY v.gate_in_at DESC, v.id DESC LIMIT ? OFFSET ?`)
+    .all(...filters.params, pageSize, (currentPage - 1) * pageSize);
+  res.json({ visits, total, page: currentPage, pages });
+});
+
+const minutesBetween = (start, end) => (new Date(end).getTime() - new Date(start).getTime()) / 60000;
+const average = (sum, count) => (count ? sum / count : null);
+
+function newTally() {
+  return { total: 0, confirmed: 0, unconfirmed: 0, inside: 0, cancelled: 0, waitSum: 0, stayCount: 0, staySum: 0 };
+}
+
+function addToTally(tally, visit) {
+  tally.total += 1;
+  if (visit.status === 'void') tally.cancelled += 1;
+  if (visit.status === 'at_gate' || visit.status === 'at_office') tally.inside += 1;
+  if (visit.status === 'done' && !visit.arrived_at) tally.unconfirmed += 1;
+  if (visit.arrived_at) {
+    tally.confirmed += 1;
+    tally.waitSum += minutesBetween(visit.gate_in_at, visit.arrived_at);
+  }
+  if (visit.status === 'done' && visit.checkout_at) {
+    tally.stayCount += 1;
+    tally.staySum += minutesBetween(visit.gate_in_at, visit.checkout_at);
+  }
+}
+
+function finishTally({ waitSum, stayCount, staySum, ...counts }) {
+  return { ...counts, avg_wait_minutes: average(waitSum, counts.confirmed), avg_stay_minutes: average(staySum, stayCount) };
+}
+
+function localDateTime(iso) {
+  if (!iso) return '';
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(iso));
+}
+
+app.get('/api/reports/summary', requireAuth(['admin']), (req, res) => {
+  const filters = visitFilters(req.query);
+  if (filters.error) return sendError(res, 400, 'invalid_filter', filters.error);
+  const visits = db.prepare(`${VISIT_SELECT} ${filters.clause} ORDER BY v.gate_in_at`).all(...filters.params);
+
+  const totals = newTally();
+  const byOffice = new Map();
+  const byDay = new Map();
+  for (const visit of visits) {
+    addToTally(totals, visit);
+    if (!byOffice.has(visit.office_name)) byOffice.set(visit.office_name, newTally());
+    addToTally(byOffice.get(visit.office_name), visit);
+    const day = localDateTime(visit.gate_in_at).slice(0, 10);
+    if (!byDay.has(day)) byDay.set(day, newTally());
+    addToTally(byDay.get(day), visit);
+  }
+
+  res.json({
+    totals: finishTally(totals),
+    by_office: [...byOffice].map(([name, tally]) => ({ name, ...finishTally(tally) })).sort((a, b) => b.total - a.total),
+    by_day: [...byDay].map(([day, tally]) => ({ day, ...finishTally(tally) })),
+  });
+});
+
+/** Quotes a CSV cell and stops spreadsheet apps from running visitor-entered text as a formula. */
+function csvCell(value) {
+  let cell = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(cell)) cell = `'${cell}`;
+  return /[",\r\n]/.test(cell) ? `"${cell.replaceAll('"', '""')}"` : cell;
+}
+
+app.get('/api/visits.csv', requireAuth(['admin']), (req, res) => {
+  const filters = visitFilters(req.query);
+  if (filters.error) return sendError(res, 400, 'invalid_filter', filters.error);
+  const visits = db.prepare(`${VISIT_SELECT} ${filters.clause} ORDER BY v.gate_in_at, v.id`).all(...filters.params);
+  const header = ['Pass', 'Visitor', 'Office', 'Contact person', 'Purpose', 'Status', 'Gate in', 'Arrived', 'Confirmed by', 'Checked out', 'Note', 'Issued by'];
+  const rows = visits.map((visit) => [
+    visit.pass_code,
+    visit.visitor_name,
+    visit.office_name,
+    visit.contact_name,
+    visit.purpose,
+    VISIT_STATUS_LABEL[visit.status],
+    localDateTime(visit.gate_in_at),
+    localDateTime(visit.arrived_at),
+    visit.arrived_by_name || visit.arrived_by_username,
+    localDateTime(visit.checkout_at),
+    visit.checkout_note,
+    visit.gate_in_by_name || visit.gate_in_by_username,
+  ]);
+  const range = [parseDay(req.query.from), parseDay(req.query.to)].filter(Boolean).join('_to_') || 'all';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="visits_${range}.csv"`);
+  // The byte order mark makes Excel read names with accents or ñ correctly.
+  res.send(`﻿${[header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`);
+});
+
+/* ------------------------------------------------- backups and notifications */
+
+app.get('/api/backups', requireAuth(['admin']), (req, res) => {
+  res.json(backupStatus());
+});
+
+app.post('/api/backups', requireAuth(['admin']), (req, res) => {
+  const backup = createBackup('manual');
+  addEvent({ type: 'backup', note: `Backup ${backup.name} created`, userId: req.user.id });
+  res.status(201).json({ backup });
+});
+
+app.get('/api/backups/:name', requireAuth(['admin']), (req, res) => {
+  const file = backupPath(req.params.name);
+  if (!file) return sendError(res, 404, 'not_found', 'Backup not found.');
+  addEvent({ type: 'backup_download', note: `Backup ${req.params.name} downloaded`, userId: req.user.id });
+  return res.download(file);
+});
+
+app.get('/api/notifications', requireAuth(['admin']), (req, res) => {
+  res.json({ configured: smsConfigured(), notifications: recentNotifications() });
+});
+
+app.post('/api/notifications/test', requireAuth(['admin']), async (req, res) => {
+  if (!smsConfigured()) return sendError(res, 409, 'not_configured', 'No SMS gateway is set up yet.');
+  const phone = text((req.body ?? {}).phone, 32);
+  if (phone.length < 7) return sendError(res, 400, 'invalid_phone', 'Enter a phone number to test with.');
+  const result = await sendSms({ recipient: 'Test message', phone, message: `${SITE_NAME}: test message from the visitor system.` });
+  if (!result.ok) return sendError(res, 502, 'send_failed', `The gateway did not accept it: ${result.error}`);
+  return res.json({ ok: true });
+});
+
 /* ------------------------------------------------------------------- print */
 
 app.get('/print/:batchId', page(['admin']), (req, res) => {
@@ -937,4 +1142,5 @@ const server = app.listen(PORT, () => {
   console.log(`  timezone: ${TZ}`);
   if (process.env.SEED_DEMO === '1') console.log('  demo data loaded (guard1/guard123, registrar1/office123, cashier1/office123)');
   console.log('');
+  startBackupSchedule();
 });
