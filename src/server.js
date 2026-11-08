@@ -25,7 +25,8 @@ const PASS_STATUSES = ['unused', 'issued', 'arrived', 'done', 'void'];
 
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', true);
+// Only a proxy on this machine may set the client IP; otherwise X-Forwarded-For could dodge the login rate limit.
+app.set('trust proxy', 'loopback');
 app.use(express.json({ limit: '256kb' }));
 app.use(attachUser);
 
@@ -182,7 +183,7 @@ app.get('/api/stream', requireAuth(['guard', 'admin']), (req, res) => {
 
 function page(roles) {
   return (req, res, next) => {
-    if (!req.user) return res.redirect('/login');
+    if (!req.user) return res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
     if (roles && !roles.includes(req.user.role)) return res.redirect(homeFor(req.user.role));
     return next();
   };
@@ -915,6 +916,11 @@ app.use((req, res) => {
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  // Client errors raised by middleware, such as malformed JSON or an oversized body.
+  if (err.status >= 400 && err.status < 500 && !res.headersSent) {
+    if (req.path.startsWith('/api/')) return sendError(res, err.status, 'bad_request', 'The request could not be read.');
+    return res.status(err.status).send(errorPage('Bad request'));
+  }
   console.error('[error]', req.method, req.path, err);
   if (res.headersSent) return;
   if (req.path.startsWith('/api/')) return res.status(500).json({ error: 'server_error', message: 'Something went wrong on the server.' });

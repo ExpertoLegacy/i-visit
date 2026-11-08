@@ -100,7 +100,10 @@ To use the camera over the network, put the app behind TLS. Two practical option
   automatically).
 
 Behind a proxy, forwarded `https` is detected so session cookies are marked `Secure`
-automatically.
+automatically. Client IPs are only taken from a proxy on the same machine, which covers
+both options above. A proxy on a different host needs its address added to the
+`trust proxy` setting in `src/server.js`, or login rate limiting will treat all visitors
+as one address.
 
 ## Configuration
 
